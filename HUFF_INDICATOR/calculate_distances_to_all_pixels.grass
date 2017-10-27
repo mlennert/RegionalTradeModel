@@ -1,0 +1,17 @@
+firmmap=produnits
+volume_measure=etab_emploi_onss_2010
+echo "nace2,median,mean,perc90,stddev" > DISTANCES/distances.csv
+for sector in $(db.select -c "select distinct nace2 from $firmmap where $volume_measure > 0 order by nace2") 
+	do
+		echo $sector
+		v.to.rast $firmmap where="nace2='$sector' AND $volume_measure > 0" out=tempunits use=val type=point --q --o
+		r.grow.distance tempunits dist=distance --q --o
+		unset median
+		unset mean
+		unset percentile_90
+		unset stddev
+		eval $(r.univar -ge distance)
+		echo $sector","$median","$mean","$percentile_90","$stddev >> DISTANCES/distances.csv
+		cut -d, -f1,4 DISTANCES/distances.csv > DISTANCES/perc90.csv
+	done
+g.remove rast name=tempunits,distance -f
