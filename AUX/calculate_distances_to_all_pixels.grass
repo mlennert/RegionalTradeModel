@@ -1,0 +1,44 @@
+# This (bash) script calculates the weighted distance of each pixel to the closest production point in each sector respectively.
+# The weights are defined by the consumption map of the sector.
+
+
+for annee in 2010 2011 2012 2013 2014
+   do
+	region_mask_map=belgique
+	resolution=1000
+	firmmap=produnits_${annee}
+	volume_measure=turnover_estim
+	nace_col=cd_nace_${annee}
+	consumption_map_template=consumption_${annee}_
+	DATA_DIR=/home/mlennert/THESE/DATA/DBRIS/GRAVITY_IO_MODEL/AUX/DISTANCES_${annee}
+	DATABASE=/workdir/ETRS89_LAEA/PERMANENT/sqlite/sqlite.db
+
+	g.region vect=$region_mask_map res=$resolution -ap
+	r.mask vect=$region_mask_map --o
+
+	mkdir -p $DATA_DIR
+
+	echo "${nace_col},median,mean,weighted_mean,perc90,stddev" > ${DATA_DIR}/distances.csv
+	for sector in $(db.select -c sql="select distinct ${nace_col} from $firmmap where $volume_measure > 0 AND length(${nace_col})==5 ORDER BY ${nace_col}" database=$DATABASE) 
+		do
+			echo $sector
+			v.to.rast $firmmap where="${nace_col}='$sector' AND $volume_measure > 0" out=tempunits use=val type=point --o --q
+			r.grow.distance tempunits dist=distance --o --q
+			nace2=$(echo $sector | awk '{print substr($1, 1, 2)}')
+			eval $(r.univar -g $consumption_map_template$nace2)
+			sum_of_weights=$sum
+			r.mapcalc "weighteddistance = distance * $consumption_map_template$nace2" --o --q
+			eval $(r.univar -g weighteddistance)
+			weighted_mean=$(echo "$sum,$sum_of_weights" | awk -F',' '{print $1/$2}')
+			unset median
+			unset mean
+			unset percentile_90
+			unset stddev
+			eval $(r.univar -ge distance)
+			echo $sector","$median","$mean","$weighted_mean","$percentile_90","$stddev >> ${DATA_DIR}/distances.csv
+			cut -d, -f1,5 ${DATA_DIR}/distances.csv > ${DATA_DIR}/perc90.csv
+			cut -d, -f1,3 ${DATA_DIR}/distances.csv > ${DATA_DIR}/mean.csv
+			cut -d, -f1,4 ${DATA_DIR}/distances.csv > ${DATA_DIR}/weighted_mean.csv
+		done
+	g.remove rast name=tempunits,distance,weighteddistance -f
+done
